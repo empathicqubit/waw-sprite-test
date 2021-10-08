@@ -1,0 +1,41 @@
+{
+    // Verwendet IntelliSense zum Ermitteln möglicher Attribute.
+    // Zeigen Sie auf vorhandene Attribute, um die zugehörigen Beschreibungen anzuzeigen.
+    // Weitere Informationen finden Sie unter https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+    
+
+
+
+
+
+
+    
+    
+
+
+
+
+        {
+            "type": "cc65-vice",
+            "request": "launch",
+            "name": "CC65 Vice Launch",
+            "program": "${workspaceFolder}/build/msprite.d64",
+            "build": {
+                "cwd": "${workspaceFolder}",
+                "command": "scons",
+                "args": []
+            },
+            "debugFile": "${workspaceFolder}/build/msprite.dbg",
+            "mapFile": "${workspaceFolder}/build/msprite.map",
+            "labelFile": "${workspaceFolder}/build/msprite.lbl",
+            "stopOnEntry": true,
+            "stopOnExit": true,
+            "viceArgs": [
+                "-model",
+                "ntsc"
+            ]
+        }
+    ]
+}

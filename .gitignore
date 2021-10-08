@@ -1,0 +1,6 @@
+*.tab
+*.o
+*.s??
+*~
+*.dblite
+build/
