@@ -8,8 +8,6 @@
 #include "c64.h"
 #include <errno.h>
 
-#define IRQ_STACK_SIZE 128
-
 extern void updatepalntsc(void);
 
 /* Check if system is PAL
@@ -18,16 +16,9 @@ void pal_system(void) {
     updatepalntsc();
 }
 
-unsigned char* irq_stack;
-
-#define SCREEN_LAST_RASTER SCREEN_SPRITE_BORDER_Y_START + SCREEN_BITMAP_HEIGHT
-#define SPRITE_BUFFER_LINE_COUNT 8
-#define SPRITE_BUFFER_LINE_HEIGHT (SCREEN_BITMAP_HEIGHT / SPRITE_BUFFER_LINE_COUNT)
-#define SCREEN_FIRST_RASTER SCREEN_SPRITE_BORDER_Y_START - SPRITE_BUFFER_LINE_HEIGHT
-
 /** Disable the IO page 
  */ 
-void __fastcall__ hide_io(void) { 
+void hide_io(void) { 
     *(unsigned char *)CIA1_CRA &= ~CIA1_CR_START_STOP; 
  
     *(unsigned char *)CPU_PORT &= ~CPU_PORT_BANK_IO_VISIBLE_CHARACTER_ROM_INVISIBLE; 
@@ -35,7 +26,7 @@ void __fastcall__ hide_io(void) {
  
 /** Enable the IO page 
  */ 
-void __fastcall__ show_io(void) { 
+void show_io(void) { 
     *(unsigned char *)CPU_PORT |= CPU_PORT_BANK_IO_VISIBLE_CHARACTER_ROM_INVISIBLE; 
  
     *(unsigned char *)CIA1_CRA |= CIA1_CR_START_STOP; 
@@ -71,7 +62,7 @@ void screen_init (bool clear) {
     VIC.addr |= ((CHARACTER_START % VIC_BANK_SIZE) / VIC_VIDEO_ADR_CHAR_DIVISOR) << 1;
 
     // Fix HLINE IRQ
-    VIC.rasterline = SCREEN_FIRST_RASTER;
+    VIC.rasterline = 0xff;
     VIC.ctrl1 &= ~VIC_CTRL1_HLINE_MSB;
 
     // Switch off bitmap mode
@@ -95,20 +86,12 @@ void screen_init (bool clear) {
 }
 
 bool is_pal = false;
-
-unsigned char setup_irq_handler(unsigned char (*handler)(void)) {
-    if(!irq_stack) {
-        if(!(irq_stack = malloc(IRQ_STACK_SIZE))) {
-            return EXIT_FAILURE;
-        }
-    }
-
-    set_irq(handler, irq_stack, IRQ_STACK_SIZE);
-
+bool irq_setup_done = false;
+unsigned char setup_irq_handler(void) {
+    irq_setup_done = true;
     return EXIT_SUCCESS;
 }
     
-unsigned char raster_clock = 0;
 unsigned int game_clock = 0;
 unsigned int last_updated = 0;
 
@@ -237,25 +220,31 @@ void set_sprite_graphic(sprite_handle handle, unsigned char sheet_index) {
     set_sprite_pointer(handle, ((unsigned int)(&s->sprites[sheet_index]) % VIC_BANK_SIZE) / VIC_SPR_SIZE);
 }
 
-void set_sprite_position(sprite_handle a, unsigned int x, unsigned char y) {
-    static sprite_handle *start_handle, *comp_handle, *current_handle;
-    static sprite_handle arg, comp;
-    static unsigned char index, last_index, hi_mask, comp_y, yarg;
-    static bool direction;
+void set_sprite_x(sprite_handle a, unsigned int x) {
+    static sprite_handle arg;
 
-    yarg = y;
     arg = a;
 
-    comp_y = arg->lo_y;
-    hi_mask = 1<<(index%VIC_SPR_COUNT);
     if(x>>8) {
-        arg->hi_x = hi_mask;
+        arg->hi_x = arg->ena;
     }
     else {
         arg->hi_x = 0;
     }
 
     arg->lo_x = (unsigned char)x;
+}
+
+void set_sprite_y(sprite_handle a, unsigned char y) {
+    static sprite_handle *start_handle, *comp_handle, *current_handle;
+    static sprite_handle arg, comp;
+    static unsigned char index, last_index, hi_mask, comp_y, yarg;
+    static bool direction, is_last;
+
+    yarg = y;
+    arg = a;
+
+    comp_y = arg->lo_y;
     if(yarg == comp_y) {
         return;
     }
@@ -288,19 +277,18 @@ void set_sprite_position(sprite_handle a, unsigned int x, unsigned char y) {
     do {
         if(direction) {
             comp_handle = current_handle + 1;
+            comp = *comp_handle;
+            is_last = (yarg <= comp->lo_y 
+                || index == last_index);
         }
         else {
             comp_handle = current_handle - 1;
+            comp = *comp_handle;
+            is_last = (comp->lo_y <= yarg
+                || index == 0);
         }
-        comp = *comp_handle;
-        if((
-            direction
-                ? (yarg <= comp->lo_y 
-                    || index == last_index)
-                : (comp->lo_y <= yarg
-                    || index == 0)
-        ) 
-        ) {
+
+        if(is_last) {
             if(current_handle == start_handle) {
                 break;
             }
@@ -326,7 +314,7 @@ void set_sprite_position(sprite_handle a, unsigned int x, unsigned char y) {
         __asm__("sbc #%b", offsetof(struct sprite_data, multi));
         __asm__("bne loop");
         
-        if(comp == arg) {
+        if(is_last) {
             *current_handle = comp;
             break;
         }
@@ -336,182 +324,42 @@ void set_sprite_position(sprite_handle a, unsigned int x, unsigned char y) {
 
         if(direction) {
             index++;
-        }
-        else {
-            index--;
-        }
-        
-        if(direction) {
             current_handle++;
         }
         else {
+            index--;
             current_handle--;
         }
+        
     } while (true);
 }
 
 void discard_sprite(sprite_handle handle) {
-    set_sprite_position(handle, 0xff, 0xff);
     sprite_count--;
     _sprite_list[sprite_count] = NULL;
+    set_sprite_x(handle, 0xff);
+    set_sprite_y(handle, 0xff);
 }
 
 sprite_handle new_sprite(bool dbl) {
     static sprite_handle handle;
+    static unsigned char hi_mask;
 
     handle = &_sprite_pool[sprite_count];
     _sprite_list[sprite_count] = handle;
-    handle->dbl = dbl<<(sprite_count%VIC_SPR_COUNT);
-    handle->ena = 1<<(sprite_count%VIC_SPR_COUNT);
+    hi_mask = 1<<(sprite_count%VIC_SPR_COUNT);
+    handle->ena = hi_mask;
+    if(dbl) {
+        handle->dbl = hi_mask;
+    }
+    else {
+        handle->dbl = 0;
+    }
     handle->lo_x = 0xfe;
     handle->lo_y = 0xfe;
     sprite_count++;
 
     return handle;
-}
-
-#define SPR_POINTERS SCREEN_START + 0x3F8
-
-unsigned char main_raster_irq(void) {
-    static unsigned char sprite_index = 0xff;
-    static unsigned char vic_sprite = 0;
-    static unsigned char current_y = 0;
-    static unsigned char new_y = 0;
-    static unsigned char hi_mask = 0;
-    static sprite_handle cs;
-
-    if(!(VIC.irr & VIC_IRQ_RASTER)) {
-        return IRQ_NOT_HANDLED;
-    }
-
-    VIC.irr |= VIC_IRQ_RASTER;
-    if(sprite_index == 0xff) {
-        sprite_index = 0;
-        vic_sprite = 0;
-
-        // NTSC frame skip
-        if(is_pal) {
-            game_clock++;
-        }
-        else if(++raster_clock < 6) {
-            game_clock++;
-        }
-        else {
-            raster_clock = 0;
-        }
-    }
-
-    cs = _sprite_list[sprite_index];
-    new_y = cs->lo_y;
-
-    do {
-        current_y = new_y;
-
-        hi_mask = ~(1<<vic_sprite);
-
-#define himasker(dest) { \
-    __asm__("lda %w", dest); \
-    __asm__("and %v", hi_mask); \
-    __asm__("ora (ptr1),Y"); \
-    __asm__("sta %w", dest); \
-}
-
-        __asm__("lda %v", cs);
-        __asm__("ldx %v+1", cs);
-        __asm__("sta ptr1");
-        __asm__("stx ptr1+1");
-        __asm__("ldy #%b", offsetof(struct sprite_data, color));
-
-        __asm__("ldx %v", vic_sprite);
-
-        __asm__("lda (ptr1),Y");
-        __asm__("sta %w,X", VIC_SPR0_COLOR);
-
-        __asm__("iny");
-        __asm__("lda (ptr1),Y");
-        __asm__("sta %w,X", SPR_POINTERS);
-
-        __asm__("txa");
-        __asm__("asl");
-        __asm__("tax");
-        __asm__("iny");
-        __asm__("lda (ptr1),Y");
-        __asm__("sta %w,X", VIC_SPR0_X);
-
-        __asm__("iny");
-        __asm__("lda (ptr1),Y");
-        __asm__("sta %w,X", VIC_SPR0_Y);
-        __asm__("tax");
-        __asm__("inx");
-        __asm__("stx %w", VIC_HLINE);
-
-        __asm__("iny");
-        himasker(VIC_SPR_ENA);
-
-        __asm__("iny");
-        himasker(VIC_SPR_HI_X);
-
-        __asm__("iny");
-        himasker(VIC_SPR_EXP_X);
-        __asm__("sta %w", VIC_SPR_EXP_Y);
-
-        __asm__("iny");
-        himasker(VIC_SPR_MCOLOR);
-
-        vic_sprite++;
-        if(vic_sprite >= VIC_SPR_COUNT) {
-            vic_sprite = 0;
-        }
-
-        // sprite_index++
-        __asm__("ldx %v", sprite_index);
-        __asm__("inx");
-        __asm__("txa");
-
-        // if(sprite_index == sprite_count)
-        __asm__("cmp %v", sprite_count);
-
-        // else
-        __asm__("bne moarcs");
-
-        // then
-        __asm__("lda #$ff");
-        __asm__("sta %v", sprite_index);
-        __asm__("sta %w", VIC_HLINE);
-        return IRQ_HANDLED;
-
-        // store the new sprite index
-        __asm__("moarcs:");
-        __asm__("sta %v", sprite_index);
-
-        __asm__("asl");
-        __asm__("tax");
-
-        // cs = _sprite_list[sprite_index]
-        __asm__("ldy %v,X", _sprite_list);
-        __asm__("sty %v", cs);
-        __asm__("sty ptr1");
-
-        __asm__("inx");
-        __asm__("ldy %v,X", _sprite_list);
-        __asm__("sty %v+1", cs);
-        __asm__("sty ptr1+1");
-
-        // new_y = cs->lo_y
-        __asm__("ldy #%b", offsetof(struct sprite_data, lo_y));
-        __asm__("lda (ptr1),Y");
-        __asm__("sta %v", new_y);
-
-        // if new_y >= current_y + buffer
-        __asm__("lda %v", current_y);
-        __asm__("clc");
-        __asm__("adc #%b", VIC_SPR_HEIGHT - 2);
-        __asm__("cmp %v", new_y);
-        __asm__("bcc exitloop");
-    } while(true);
-    __asm__("exitloop: ");
-
-    return IRQ_HANDLED;
 }
 
 #define WAW_SPRITE_COUNT 9
@@ -536,7 +384,8 @@ struct waw {
 typedef struct waw waw;
 
 void init_waw(waw* w) {
-    static unsigned char i, j, x, y, sprite_x, sprite_y, idx;
+    static unsigned int x, sprite_x;
+    static unsigned char i, j, y, sprite_y, idx;
     static waw* waw;
     static sprite_handle sprite;
     static sprite_handle* sprites;
@@ -556,10 +405,12 @@ void init_waw(waw* w) {
             sprite = new_sprite(true);
             set_sprite_graphic(sprite, WAW_SPRITE_OFFSET + idx);
             if(idx == WAW_MOUTHINDEX) {
-                set_sprite_position(sprite, sprite_x, sprite_y + waw->mouth_offset);
+                set_sprite_x(sprite, sprite_x);
+                set_sprite_y(sprite, sprite_y + waw->mouth_offset);
             }
             else {
-                set_sprite_position(sprite, sprite_x, sprite_y);
+                set_sprite_x(sprite, sprite_x);
+                set_sprite_y(sprite, sprite_y);
             }
             sprites[idx] = sprite;
             idx++;
@@ -568,11 +419,10 @@ void init_waw(waw* w) {
 }
 
 void update_waw(waw* w) {
-    static unsigned int sprite_x;
-    static unsigned char y, sprite_y;
+    static unsigned char y;
     static unsigned char idx;
     static signed char change_y, mouth_offset;
-    static sprite_handle* current_sprite;
+    static sprite_handle* sprites;
     static sprite_handle sprite;
     static waw* waw;
     waw = w;
@@ -613,27 +463,22 @@ void update_waw(waw* w) {
 
     waw->y = y + change_y;
 
-    current_sprite = waw->sprites;
+    sprites = waw->sprites;
     for(idx = 0; idx < WAW_SPRITE_COUNT; idx++) {
-        sprite = *current_sprite;
-        ((unsigned char*)&sprite_x)[0] = sprite->lo_x; 
-        ((unsigned char*)&sprite_x)[1] = sprite->hi_x;
-        sprite_y = sprite->lo_y + change_y;
+        sprite = sprites[idx];
         // Mouth
         if(idx == WAW_MOUTHINDEX) {
-            set_sprite_position(sprite, sprite_x, current_sprite[-1]->lo_y + mouth_offset);
+            set_sprite_y(sprite, sprites[idx-1]->lo_y + mouth_offset);
         }
         else {
-            set_sprite_position(sprite, sprite_x, sprite_y);
+            set_sprite_y(sprite, sprite->lo_y + change_y);
         }
-
-        current_sprite++;
     }
 }
 
 unsigned char main(void) {
     static unsigned char err;
-    //static waw waw2 = {VIC_SPR_WIDTH * WAW_COLUMNS * 2,VIC_SPR_HEIGHT * 2,0,true,true};
+    static waw waw2 = {VIC_SPR_WIDTH * WAW_COLUMNS * 2,VIC_SPR_HEIGHT * 2,0,true,true};
     static waw waw = {0,0,0,true,true};
 
     updatepalntsc();
@@ -646,10 +491,10 @@ unsigned char main(void) {
 
     init_sprite_pool();
     init_waw(&waw);
-    //init_waw(&waw2);
+    init_waw(&waw2);
 
     character_init(true);
-    setup_irq_handler(&main_raster_irq);
+    setup_irq_handler();
     screen_init(true);
 
     do {
@@ -658,7 +503,7 @@ unsigned char main(void) {
         }
 
         update_waw(&waw);
-        //update_waw(&waw2);
+        update_waw(&waw2);
 
         last_updated++;
     } while(true);
