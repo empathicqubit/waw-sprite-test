@@ -178,15 +178,15 @@ unsigned char spritesheet_load(unsigned char* filename) {
 #define SPD_SPRITE_COLOR_VALUE_MASK 0x0F
 
 struct sprite_data {
-    unsigned char color;
-    unsigned char pointer;
-    unsigned char lo_x;
-    unsigned char lo_y;
-
     unsigned char ena;
     unsigned char hi_x;
     unsigned char dbl;
     unsigned char multi;
+
+    unsigned char color;
+    unsigned char pointer;
+    unsigned char lo_x;
+    unsigned char lo_y;
 };
 typedef struct sprite_data* sprite_handle;
 
@@ -275,52 +275,137 @@ void set_sprite_y(sprite_handle a, unsigned char y) {
 
     current_handle = start_handle;
     do {
-        if(direction) {
-            comp_handle = current_handle + 1;
-            comp = *comp_handle;
-            is_last = (yarg <= comp->lo_y 
-                || index == last_index);
-        }
-        else {
-            comp_handle = current_handle - 1;
-            comp = *comp_handle;
-            is_last = (comp->lo_y <= yarg
-                || index == 0);
-        }
 
-        if(is_last) {
-            if(current_handle == start_handle) {
+// set ptr3 to pointer to next struct pointer in list
+#define set_comp_list_pointer(add, carry, cond, inc) { \
+    __asm__("lda %v", current_handle); \
+    __asm__("ldy %v+1", current_handle); \
+    __asm__(carry); \
+    __asm__(add " #$02"); \
+    __asm__(cond " handle_" add); \
+    __asm__(inc); \
+    __asm__("handle_" add ": "); \
+    __asm__("sta ptr3"); \
+    __asm__("sty ptr3+1"); \
+}
+
+// store comparison struct pointer to ptr1
+#define set_comp_pointer() { \
+    __asm__("ldy #$00"); \
+    __asm__("lda (ptr3),Y"); \
+    __asm__("sta ptr1"); \
+\
+    __asm__("iny"); \
+    __asm__("lda (ptr3),Y"); \
+    __asm__("sta ptr1+1"); \
+}
+
+        __asm__("ldx %v", direction);
+        __asm__("beq false_dir");
+            set_comp_list_pointer("adc", "clc", "bcc", "iny");
+            set_comp_pointer();
+
+            // test if comparison y is greater than or equal to current y
+            __asm__("ldy #%b", offsetof(struct sprite_data, lo_y));
+
+            __asm__("lda (ptr1),Y");
+            __asm__("cmp %v", yarg);
+            __asm__("bcs truth");
+
+            // test if index is the one at the end of the list.
+            __asm__("lda %v", index);
+            __asm__("cmp %v", last_index);
+            __asm__("beq truth");
+
+            __asm__("lda #00");
+            __asm__("beq is_last");
+            __asm__("truth: lda #$01");
+            __asm__("is_last: sta %v", is_last);
+        __asm__("bpl end_dir");
+        __asm__("false_dir: ");
+            // fixme: use x for direction?
+            set_comp_list_pointer("sbc", "sec", "bcs", "dey");
+            set_comp_pointer();
+
+            // test if current y >= comparison y
+            __asm__("ldy #%b", offsetof(struct sprite_data, lo_y));
+
+            __asm__("lda %v", yarg);
+            __asm__("cmp (ptr1),Y");
+            __asm__("bcs back_truth");
+
+            // test if index is the one at the beginning of the list.
+            __asm__("lda %v", index);
+            __asm__("beq back_truth");
+
+            __asm__("lda #00");
+            __asm__("beq back_is_last");
+            __asm__("back_truth: lda #$01");
+            __asm__("back_is_last: sta %v", is_last);
+        __asm__("end_dir: ");
+
+        // copy current_handle to ptr2
+        __asm__("lda %v", current_handle);
+        __asm__("ldx %v+1", current_handle);
+        __asm__("sta ptr2");
+        __asm__("stx ptr2+1");
+
+        __asm__("ldy is_last");
+
+        __asm__("beq not_last");
+            __asm__("cmp %v", start_handle);
+            __asm__("bne not_start_handle");
+            __asm__("cpx %v+1", start_handle);
+            __asm__("bne not_start_handle");
                 break;
-            }
+            __asm__("not_start_handle: ");
 
-            comp = arg;
-        }
+            __asm__("lda %v", arg);
+            __asm__("ldx %v+1", arg);
+            __asm__("sta ptr1");
+            __asm__("stx ptr1+1");
+        __asm__("not_last: ");
 
-        hi_mask = 1<<(index%VIC_SPR_COUNT);
+        // set hi_mask
+        __asm__("lda %v", index);
+        __asm__("and #$07");
+        __asm__("tay");
+        __asm__("lda #$01");
+        __asm__("shift: asl");
+        __asm__("dey");
+        __asm__("bpl shift");
+        __asm__("ror");
+        __asm__("sta %v", hi_mask);
 
-        __asm__("lda %v", comp);
-        __asm__("ldx %v+1", comp);
-        __asm__("ldy #%b", offsetof(struct sprite_data, ena));
-        __asm__("sta ptr1");
-        __asm__("stx ptr1+1");
+        // prepare to iterate over comp fields in reverse
+        __asm__("ldy #%b", offsetof(struct sprite_data, multi));
 
+        // change hi_mask on ones that are already set
         __asm__("ldx %v", hi_mask);
-        __asm__("loop: lda (ptr1),Y");
+        __asm__("loop:");
+        __asm__("lda (ptr1),Y");
         __asm__("beq done");
         __asm__("txa");
         __asm__("sta (ptr1),Y");
-        __asm__("done: iny");
-        __asm__("tya");
-        __asm__("sbc #%b", offsetof(struct sprite_data, multi));
-        __asm__("bne loop");
+        __asm__("done: dey");
+        __asm__("bpl loop");
         
-        if(is_last) {
-            *current_handle = comp;
-            break;
-        }
+        // swap comp to current_handle
+        __asm__("lda ptr1");
+        __asm__("sta (ptr2),y");
+        __asm__("iny");
+        __asm__("lda ptr1+1");
+        __asm__("sta (ptr2),y");
 
-        *current_handle = comp;
-        *comp_handle = arg;
+        // if the comp is last, break
+        __asm__("ldx %v", is_last);
+        __asm__("bne exitloop");
+
+        __asm__("lda %v+1", arg);
+        __asm__("sta (ptr3),y");
+        __asm__("dey");
+        __asm__("lda %v", arg);
+        __asm__("sta (ptr3),y");
 
         if(direction) {
             index++;
@@ -332,6 +417,7 @@ void set_sprite_y(sprite_handle a, unsigned char y) {
         }
         
     } while (true);
+    __asm__("exitloop: ");
 }
 
 void discard_sprite(sprite_handle handle) {

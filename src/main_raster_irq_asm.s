@@ -118,7 +118,20 @@ done:
     ldx current_sprite+1
     sta ptr1
     stx ptr1+1
-    ldy #$00 ; FIXME offsetof(color)
+    ldy #$00 ; FIXME offsetof(ena)
+
+    iny
+    himasker VIC_SPR_ENA
+
+    iny
+    himasker VIC_SPR_HI_X
+
+    iny
+    himasker VIC_SPR_EXP_X
+    sta VIC_SPR_EXP_Y
+
+    iny
+    himasker VIC_SPR_MCOLOR
 
     ; store color and pointer into arrays
     ldx vic_sprite
@@ -155,19 +168,6 @@ write_vic_sprite:
     tax
     inx
     stx VIC_HLINE
-
-    iny
-    himasker VIC_SPR_ENA
-
-    iny
-    himasker VIC_SPR_HI_X
-
-    iny
-    himasker VIC_SPR_EXP_X
-    sta VIC_SPR_EXP_Y
-
-    iny
-    himasker VIC_SPR_MCOLOR
 
     ; inc sprite_index
     ldx sprite_index
