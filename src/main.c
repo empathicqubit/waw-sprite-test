@@ -236,8 +236,10 @@ void set_sprite_x(sprite_handle a, unsigned int x) {
 }
 
 void set_sprite_y(sprite_handle a, unsigned char y) {
-    static sprite_handle *start_handle, *comp_handle, *current_handle;
-    static sprite_handle arg, comp;
+    register sprite_handle *comp_handle, *current_handle;
+    register sprite_handle comp;
+    static sprite_handle* start_handle;
+    static sprite_handle arg;
     static unsigned char index, last_index, hi_mask, comp_y, yarg;
     static bool direction, is_last;
 
@@ -298,17 +300,13 @@ void set_sprite_y(sprite_handle a, unsigned char y) {
 
         hi_mask = 1<<(index%VIC_SPR_COUNT);
 
-        __asm__("lda %v", comp);
-        __asm__("ldx %v+1", comp);
         __asm__("ldy #%b", offsetof(struct sprite_data, ena));
-        __asm__("sta ptr1");
-        __asm__("stx ptr1+1");
 
         __asm__("ldx %v", hi_mask);
-        __asm__("loop: lda (ptr1),Y");
+        __asm__("loop: lda (%v),Y", comp);
         __asm__("beq done");
         __asm__("txa");
-        __asm__("sta (ptr1),Y");
+        __asm__("sta (%v),Y", comp);
         __asm__("done: iny");
         __asm__("tya");
         __asm__("sbc #%b", offsetof(struct sprite_data, multi));
@@ -383,13 +381,11 @@ struct waw {
 };
 typedef struct waw waw;
 
-void init_waw(waw* w) {
+void init_waw(register waw* waw) {
     static unsigned int x, sprite_x;
     static unsigned char i, j, y, sprite_y, idx;
-    static waw* waw;
     static sprite_handle sprite;
     static sprite_handle* sprites;
-    waw = w;
 
     x = waw->x + SCREEN_SPRITE_BORDER_X_START;
     y = waw->y + SCREEN_SPRITE_BORDER_Y_START;
@@ -418,14 +414,12 @@ void init_waw(waw* w) {
     }
 }
 
-void update_waw(waw* w) {
+void update_waw(register waw* waw) {
     static unsigned char y;
     static unsigned char idx;
     static signed char change_y, mouth_offset;
     static sprite_handle* sprites;
     static sprite_handle sprite;
-    static waw* waw;
-    waw = w;
     mouth_offset = waw->mouth_offset;
     if(waw->mouth_direction) {
         mouth_offset+=WAW_MOUTHSPEED;

@@ -24,12 +24,10 @@
     tax
 
     ldy __sprite_list,X
-    sty current_sprite
     sty ptr1
 
     inx
     ldy __sprite_list,X
-    sty current_sprite+1
     sty ptr1+1
 
     ldy #$03 ; FIXME offsetof(lo_y)
@@ -52,23 +50,11 @@ vic_sprite:     .byte $00
 current_y:      .byte $00
 new_y:          .byte $00
 hi_mask:        .byte $00
-current_sprite: .res 2
 raster_clock:   .byte $06
 
 .segment "CODE"
 
 .proc main_raster_irq
-    ; Make sure this is a raster interrupt and we're ready
-    lda _irq_setup_done
-    jeq unhandled
-    lda VIC_IRQ_RASTER
-    bit VIC_IRR
-    jeq unhandled
-
-    ; set the flag so we know we've handled it
-    ora VIC_IRR
-    sta VIC_IRR
-
     ; if we're at the beginning of the sprite loop, initialize the variables
     lda sprite_index
     cmp #$ff
@@ -102,22 +88,7 @@ sprite_update_loop:
     lda new_y
     sta current_y
 
-    lda #$01
-    ldx vic_sprite
-    beq done
-shift:
-    asl
-    dex
-    bne shift
-done:
-    eor #$ff
-    sta hi_mask
-
     ; prep the pointer for struct access
-    lda current_sprite
-    ldx current_sprite+1
-    sta ptr1
-    stx ptr1+1
     ldy #$00 ; FIXME offsetof(color)
 
     ; store color and pointer into arrays
@@ -156,7 +127,11 @@ write_vic_sprite:
     inx
     stx VIC_HLINE
 
+    ; Use enable bit as mask
     iny
+    lda (ptr1),Y
+    eor #$ff
+    sta hi_mask
     himasker VIC_SPR_ENA
 
     iny
@@ -205,6 +180,17 @@ unhandled:
 .endproc
 
 .proc raster_irq
+    ; Make sure this is a raster interrupt and we're ready
+    lda _irq_setup_done
+    beq unhandled
+    lda VIC_IRQ_RASTER
+    bit VIC_IRR
+    beq unhandled
+
+    ; set the flag so we know we've handled it
+    ora VIC_IRR
+    sta VIC_IRR
+
     lda ptr1
     ldx ptr1+1
     sta ptr1_save
@@ -219,5 +205,9 @@ unhandled:
     ldx ptr1_save+1
     sta ptr1
     stx ptr1+1
+    rts
+unhandled:
+    lda IRQ_NOT_HANDLED
+    lsr
     rts
 .endproc

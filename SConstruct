@@ -26,7 +26,7 @@ env = Environment(
         'DISPLAY': display,
     },
     AS = 'ca65',
-    ASFLAGS = ['-t', 'c64', '-g'],
+    ASFLAGS = ['-t', 'c64', '-g', '--cpu', '6502x'],
     CC = 'cl65',
     CFLAGS = ['-DSCREEN_START=0x'+screen_start, '-DSPRITE_START=0x'+sprite_start, '-DCHARACTER_START=0x'+character_start, '-O', '-Osir', '-t', 'c64', '-C', 'c64.cfg', '-g', '-Wc', '--debug-tables', '-Wc', '${SOURCE}.tab'],
     LINK = 'cl65',
