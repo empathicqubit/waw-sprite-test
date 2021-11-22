@@ -8,7 +8,7 @@ character_start = 'D800'
 if 'CC65_HOME' in os.environ:
     cc65_home = os.environ['CC65_HOME']
 else:
-    cc65_home = ''
+    cc65_home = str(Glob(os.environ['HOME'] + '/.vscode/extensions/entan-gl.cc65-vice*/dist/cc65')[0])
 
 if 'DISPLAY' in os.environ:
     display = os.environ['DISPLAY']
@@ -32,6 +32,8 @@ env = Environment(
     LINK = 'cl65',
     LINKFLAGS = ['-g', '-C', 'c64.cfg', '-D__HIMEM__=$' + screen_start, '-Wl', '--dbgfile,build/msprite.dbg', '-Wl', '-Lnbuild/msprite.lbl', '-Wl', '--mapfile,build/msprite.map']
 )
+
+env.PrependENVPath("PATH", cc65_home + "/bin_linux_x64")
 
 prg = env.Program(target=["build/msprite.prg", "build/msprite.map", "build/msprite.dbg", "build/msprite.lbl"], source=[Glob('src/*.c'), Glob('src/*_asm.s')])
 

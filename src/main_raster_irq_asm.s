@@ -161,7 +161,6 @@ moarcs:
     sta sprite_index
 
     get_next_sprite
-
     ; if new_y >= current_y + buffer
     lda current_y
     clc
@@ -181,8 +180,6 @@ unhandled:
 
 .proc raster_irq
     ; Make sure this is a raster interrupt and we're ready
-    lda _irq_setup_done
-    beq unhandled
     lda VIC_IRQ_RASTER
     bit VIC_IRR
     beq unhandled
@@ -190,6 +187,10 @@ unhandled:
     ; set the flag so we know we've handled it
     ora VIC_IRR
     sta VIC_IRR
+
+    ; Make sure we're ready to start processing interrupts
+    lda _irq_setup_done
+    beq handled
 
     lda ptr1
     ldx ptr1+1
@@ -208,6 +209,10 @@ unhandled:
     rts
 unhandled:
     lda IRQ_NOT_HANDLED
+    lsr
+    rts
+handled:
+    lda IRQ_HANDLED
     lsr
     rts
 .endproc

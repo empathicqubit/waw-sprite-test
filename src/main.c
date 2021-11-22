@@ -193,7 +193,7 @@ typedef struct sprite_data* sprite_handle;
 #define SPRITE_POOL_SIZE 32
 struct sprite_data _sprite_pool[SPRITE_POOL_SIZE];
 sprite_handle _sprite_list[SPRITE_POOL_SIZE];
-unsigned char sprite_count;
+unsigned char sprite_count = 0;
 
 void init_sprite_pool(void) {
     memset(&_sprite_pool, 0x00, sizeof(struct sprite_data) * SPRITE_POOL_SIZE);

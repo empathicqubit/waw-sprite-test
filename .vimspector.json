@@ -1,0 +1,24 @@
+{
+    "configurations": {
+        "CC65 VICE": {
+            "adapter": "cust_cc65-vice",
+            "configuration": {
+                "request": "launch",
+                "name": "CC65 Vice Launch",
+                "debugFile": "${workspaceFolder}/build/machismo.dbg",
+                "mapFile": "${workspaceFolder}/build/machismo.map",
+                "program": "${workspaceFolder}/build/machismo.d64",
+                "build": {
+                    "cwd": "${workspaceFolder}",
+                    "command": "scons",
+                    "args": []
+                },
+                "stopOnEntry": true,
+                "viceArgs": [
+                    "-model",
+                    "ntsc"
+                ]
+            }
+        }
+    }
+}
