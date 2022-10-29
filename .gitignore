@@ -1,6 +1,6 @@
 *.tab
 *.o
-*.s??
+*.sw?
 *~
 *.dblite
 build/
