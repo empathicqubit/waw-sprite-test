@@ -19,6 +19,7 @@ print(cc65_home)
 print(os.environ['PATH'])
 
 env = Environment(
+    tools=['mingw'],
     BUILDERS = {},
     ENV = {
         'PATH': os.environ["PATH"],
@@ -52,8 +53,8 @@ def disk_func(target, source, env):
         typename = 's'
         if basename.endswith('prg'):
             typename = 'p'
-        changes.append(""" -delete '%s' -write '%s' '%s,%s'""" % (basename, str(src), basename, typename))
-    env.Execute("""c1541 -attach '%s' %s """ % (str(target[0]), ''.join(changes)))
+        changes.append(""" -delete "%s" -write "%s" "%s,%s" """ % (basename, str(src), basename, typename))
+    env.Execute("""c1541 -attach "%s" %s """ % (str(target[0]), ''.join(changes)))
 
 disk_image = env.Command(target=["build/msprite.d64"], source=disk_files, action=disk_func)
 
