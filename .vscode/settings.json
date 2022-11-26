@@ -40,5 +40,10 @@
         "c64.h": "c",
         "cstring": "c",
         "6502.h": "c"
+    },
+    "workbench.colorCustomizations": {
+        "activityBar.background": "#eee",
+        "activityBar.foreground": "#000000ff",
+        "activityBar.inactiveForeground": "#00000088"
     }
 }
